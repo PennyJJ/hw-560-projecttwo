@@ -3,8 +3,10 @@ title: "560 Data Mining Course Project 2"
 author: "Jing Zhang"
 date: "2/23/2021"
 output:
+  word_document: default
   html_document:
     df_print: paged
+  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
