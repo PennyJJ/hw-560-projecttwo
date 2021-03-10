@@ -1,0 +1,256 @@
+---
+title: "project2"
+author: "Jing Zhang"
+date: "2/23/2021"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+require(mlbench)
+library(tidyverse)
+```
+
+BreastCancer has 699 observations on 11 variables, one being a character variable, 9 being ordered or nominal, and 1 target class.
+
+### Data preparation 
+
+Load Data
+
+```{r}
+# load the data set
+data(BreastCancer)
+# some algorithms don't like missing values, so remove rows with missing values
+BreastCancer <- na.omit(BreastCancer) 
+# remove the unique identifier, which is useless and would confuse the machine learning algorithms
+BreastCancer <- BreastCancer %>% dplyr::select(-Id) #why need to specify the package name to work?it's due to the package overlapping, MASS has select fun. 
+
+summary(BreastCancer)
+#look at the class 
+#split(names(BreastCancer), sapply(BreastCancer, function(x)(class(x))))
+```
+
+Split data
+
+```{r}
+# partition the data set for 80% training and 20% evaluation
+set.seed(2)
+ind <- sample(2, nrow(BreastCancer), replace = TRUE, prob=c(0.8, 0.2))
+
+train <- BreastCancer[ind==1,]
+valid <- BreastCancer[ind==2,]
+```
+
+### Create multiple models using different classifiers/algorithms 
+
+1.decision tree 
+```{r}
+library(rpart)
+library(rpart.plot)
+x.rp <- rpart(Class ~ ., data=train)
+plot(x.rp, main="Decision tree created using rpart") #????? 
+prp(x.rp, type = 1, extra = 1, split.font = 1, varlen = -10)  
+
+#prediction
+# predict classes for the evaluation data set
+x.rp.pred <- predict(x.rp, type="class", newdata=valid)  # to ensemble
+# score the evaluation data set (extract the probabilities)
+x.rp.prob <- predict(x.rp, type="prob", newdata=valid)
+table(x.rp.pred,valid$Class)
+
+# Leave-1-Out Cross Validation (LOOCV)
+#ans <- numeric(nrow(BreastCancer))
+#for (i in 1:nrow(BreastCancer)) {
+#  mytree <- rpart(Class ~ ., BreastCancer[-i,])
+#  mytree.pred <- predict(mytree,BreastCancer[i,],type="class")
+#  ans[i] <- mytree.pred
+#}
+#ans <- factor(ans,labels=levels(BreastCancer$Class))
+#table(ans,BreastCancer$Class)
+#ans         benign malignant
+#  benign       430        20
+#  malignant     14       219
+```
+
+2. conditional inference trees
+```{r}
+require(party)
+x.ct <- ctree(Class ~ ., data=train)
+plot(x.ct, main="Decision tree created using condition inference trees") 
+
+x.ct.pred <- predict(x.ct, newdata=valid) #ensemble
+x.ct.prob <-  1- unlist(treeresponse(x.ct, valid), use.names=F)[seq(1,nrow(valid)*2,2)]
+```
+
+3.random forest : an implementation of the random forest and bagging ensemble algorithms utilizing conditional inference trees as base learners.
+```{r}
+x.cf <- cforest(Class ~ ., data=train, control = cforest_unbiased(mtry = 9)) #?cforest_unbiased, bagging? #500 trees
+
+x.cf.pred <- predict(x.cf, newdata=valid)
+x.cf.prob <-  1- unlist(treeresponse(x.cf, valid), use.names=F)[seq(1,nrow(valid)*2,2)]
+
+```
+
+4. bagging (bootstrap aggregating)
+```{r}
+# create model using bagging (bootstrap aggregating)
+require(ipred)
+x.ip <- bagging(Class ~ ., data=train) #Bagging classification trees with 25 bootstrap replications 
+
+x.ip.pred <- predict(x.ip, newdata=valid)
+x.ip.prob <- predict(x.ip, type="prob", newdata=valid)
+```
+
+5. svm
+```{r}
+require(e1071)
+# svm requires tuning
+x.svm.tune <- tune(svm, Class~., data = train,
+                   ranges = list(gamma = 2^(-8:1), cost = 2^(0:4)),
+                   tunecontrol = tune.control(sampling = "fix")) #why use these number to intialize ranges?
+# display the tuning results (in text format)
+x.svm.tune #note the gamma and cost
+# If the tuning results are on the margin of the parameters (e.g., gamma = 2^-8), 
+# then widen the parameters.
+# I manually copied the cost and gamma from console messages above to parameters below.
+x.svm <- svm(Class~., data = train, cost=1, gamma=0.03125, probability = TRUE) #
+
+x.svm.pred <- predict(x.svm, type="class", newdata=valid) #ensemble; only give the class
+x.svm.prob <- predict(x.svm, type="prob", newdata=valid, probability = TRUE) # has to include probability = TRUE while type="prob" is not needed
+#t <- attr(x.svm.prob, "probabilities") # only give the probabilities
+```
+
+6. naive bayes
+```{r}
+library(klaR)
+x.nb <- NaiveBayes(Class~., data = train)
+x.nb.pred <- predict(x.nb,valid)$class  #ensemble
+x.nb.prob <- predict(x.nb,valid)$posterior
+table(x.nb.pred,valid$Class)
+```
+
+7. neural network
+```{r}
+library(nnet)
+x.nn <- nnet(Class~., data = train,size=1) #size? everytime, result changes, hidden layer, nodes?
+x.nn.pred <- predict(x.nn,valid,type="class")
+x.nn.prob <- predict(x.nn,valid,type="raw") #is this the probability of "malignant"?  yes?
+table(x.nn.pred,valid$Class)
+```
+
+8. Quadratic Discriminant Analysis
+```{r}
+library(MASS)
+library(dplyr)
+train.num <- train %>% dplyr::select(-Class) %>% mutate_if(is.factor,as.character)%>% mutate_if(is.character,as.numeric)
+train.num$Class <- train$Class
+valid.num <- valid%>%dplyr::select(-Class) %>% mutate_if(is.factor,as.character)%>% mutate_if(is.character,as.numeric)
+valid.num$Class <- valid$Class
+
+x.qda <- qda(Class~., data = train.num) #qda, formula, right hand is non-factor
+x.qda.pred <- predict(x.qda, valid.num)$class
+x.qda.prob <- predict(x.qda, valid.num)$posterior #is posterior? 
+table(x.qda.pred,valid.num$Class)
+```
+
+9. Regularised Discriminant Analysis
+```{r}
+library(klaR)
+x.rda <- rda(Class~., data = train)
+x.rda.pred <- predict(x.rda, valid)$class
+x.rda.prob <- predict(x.rda, valid)$posterior
+table(x.rda.pred,valid$Class)
+```
+
+### Plot ROC curves to compare the performance of the individual classifiers.
+
+```{r}
+#load the ROCR package which draws the ROC curves
+require(ROCR)
+
+# 1.rptree
+# create an ROCR prediction object from rpart() probabilities
+x.rp.prob.rocr <- prediction(x.rp.prob[,2], BreastCancer[ind == 2,'Class'])
+#x.rp.prob.rocr #Slot "n.pos": check and see if it identifies the positive class; compare with summary(valid$Class)
+# prepare an ROCR performance object for ROC curve (tpr=true positive rate, fpr=false positive rate)
+x.rp.perf <- performance(x.rp.prob.rocr, "tpr","fpr")
+
+# 2.ctree
+x.ct.prob.rocr <- prediction(x.ct.prob, BreastCancer[ind == 2,'Class'])
+x.ct.perf <- performance(x.ct.prob.rocr, "tpr","fpr")
+
+# 3.cforest
+x.cf.prob.rocr <- prediction(x.cf.prob, BreastCancer[ind == 2,'Class'])
+x.cf.perf <- performance(x.cf.prob.rocr, "tpr","fpr")
+
+# 4.bagging
+x.ip.prob.rocr <- prediction(x.ip.prob[,2], BreastCancer[ind == 2,'Class'])
+x.ip.perf <- performance(x.ip.prob.rocr, "tpr","fpr")
+
+# 5.svm
+x.svm.prob.rocr <- prediction(attr(x.svm.prob, "probabilities")[,2], BreastCancer[ind == 2,'Class'])
+x.svm.perf <- performance(x.svm.prob.rocr, "tpr","fpr")
+
+# 6.nb ### calculate the prob 
+x.nb.prob.rocr <- prediction(x.nb.prob[,2], BreastCancer[ind == 2,'Class'])
+x.nb.perf <- performance(x.nb.prob.rocr, "tpr","fpr")
+
+# 7.nn
+x.nn.prob.rocr <- prediction(x.nn.prob, BreastCancer[ind == 2,'Class'])
+x.nn.perf <- performance(x.nn.prob.rocr, "tpr","fpr")
+
+# 8.qda
+x.qda.prob.rocr <- prediction(x.qda.prob[,2], BreastCancer[ind == 2,'Class'])
+x.qda.perf <- performance(x.qda.prob.rocr, "tpr","fpr")
+
+# 9.rda
+x.rda.prob.rocr <- prediction(x.rda.prob[,2], BreastCancer[ind == 2,'Class'])
+x.rda.perf <- performance(x.rda.prob.rocr, "tpr","fpr")
+```
+
+
+```{r}
+####### plot
+# Output the plot to a PNG file for display on web.  To draw to the screen, 
+# comment this line out.
+png(filename="roc_curve_models1.png", width=700, height=700)
+
+#par(mfrow=c(1,2))
+plot(x.rp.perf, col=2, main="ROC curves comparing classification performance \n of 9 machine learning models") # 
+legend(0.6, 0.6, c('rpart', 'ctree', 'cforest','bagging','svm'), 2:6)# Draw a legend.
+plot(x.ct.perf, col=3, add=TRUE)# add=TRUE draws on the existing chart  #has to be run together.
+plot(x.cf.perf, col=4, add=TRUE)
+plot(x.ip.perf, col=5, add=TRUE)
+plot(x.svm.perf, col=6, add=TRUE)
+# Close and save the PNG file.
+dev.off()
+
+png(filename="roc_curve_models2.png", width=700, height=700)
+plot(x.nb.perf, col=7, main="ROC curves comparing classification performance \n of the other 4 machine learning models")
+legend(0.6, 0.6, c('naive bayes', 'neural network', 'qda','rda'), 7:10)
+plot(x.nn.perf, col=8, add=TRUE)
+plot(x.qda.perf, col=9, add=TRUE)
+plot(x.rda.perf, col=10, add=TRUE)
+dev.off()
+```
+
+### Ensemble: combine all the nine classifiers and generate the final prediction based on the majority rule.
+
+```{r}
+classifier <- data.frame(cbind(x.rp.pred, x.ct.pred, x.cf.pred, x.ip.pred, x.svm.pred, x.nb.pred,x.nn.pred,x.qda.pred,x.rda.pred))
+
+names(classifier) <-c('recursive.tree','conditional.inference.tree','random.forest','bootstrap','svm','naive.bayes','neutral.network','qda','rda')
+levels(classifier$neutral.network) =c('1','2')
+
+classifier <-classifier%>% sapply(FUN = function(x)(ifelse(x=='1',0,1)))
+classifier<- addmargins(classifier, margin = 2) # table/arragy, margin =2 aggregate by col 
+classifier <- data.frame(classifier)
+classifier$predition <- ifelse(classifier$Sum >=5, 'malignant','benign')
+
+#confusion matrix 
+library(caret)
+confusionMatrix(as.factor(classifier$predition), valid$Class, positive = 'malignant')
+```
