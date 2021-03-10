@@ -1,12 +1,14 @@
 ---
-title: "project2"
+title: "560 Data Mining Course Project 2"
 author: "Jing Zhang"
 date: "2/23/2021"
-output: word_document
+output:
+  html_document:
+    df_print: paged
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 ```
 
 ```{r}
@@ -46,12 +48,12 @@ valid <- BreastCancer[ind==2,]
 
 ### Create multiple models using different classifiers/algorithms 
 
-1.decision tree 
+1. decision tree 
 ```{r}
 library(rpart)
 library(rpart.plot)
 x.rp <- rpart(Class ~ ., data=train)
-plot(x.rp, main="Decision tree created using rpart") #????? 
+#plot(x.rp, main="Decision tree created using rpart") #????? 
 prp(x.rp, type = 1, extra = 1, split.font = 1, varlen = -10)  
 
 #prediction
@@ -83,15 +85,16 @@ plot(x.ct, main="Decision tree created using condition inference trees")
 
 x.ct.pred <- predict(x.ct, newdata=valid) #ensemble
 x.ct.prob <-  1- unlist(treeresponse(x.ct, valid), use.names=F)[seq(1,nrow(valid)*2,2)]
+table(x.ct.pred,valid$Class)
 ```
 
-3.random forest : an implementation of the random forest and bagging ensemble algorithms utilizing conditional inference trees as base learners.
+3. random forest : an implementation of the random forest and bagging ensemble algorithms utilizing conditional inference trees as base learners.
 ```{r}
 x.cf <- cforest(Class ~ ., data=train, control = cforest_unbiased(mtry = 9)) #?cforest_unbiased, bagging? #500 trees
 
 x.cf.pred <- predict(x.cf, newdata=valid)
 x.cf.prob <-  1- unlist(treeresponse(x.cf, valid), use.names=F)[seq(1,nrow(valid)*2,2)]
-
+table(x.cf.pred,valid$Class)
 ```
 
 4. bagging (bootstrap aggregating)
@@ -102,6 +105,7 @@ x.ip <- bagging(Class ~ ., data=train) #Bagging classification trees with 25 boo
 
 x.ip.pred <- predict(x.ip, newdata=valid)
 x.ip.prob <- predict(x.ip, type="prob", newdata=valid)
+table(x.ip.pred,valid$Class)
 ```
 
 5. svm
@@ -121,6 +125,7 @@ x.svm <- svm(Class~., data = train, cost=1, gamma=0.03125, probability = TRUE) #
 x.svm.pred <- predict(x.svm, type="class", newdata=valid) #ensemble; only give the class
 x.svm.prob <- predict(x.svm, type="prob", newdata=valid, probability = TRUE) # has to include probability = TRUE while type="prob" is not needed
 #t <- attr(x.svm.prob, "probabilities") # only give the probabilities
+table(x.svm.pred,valid$Class)
 ```
 
 6. naive bayes
@@ -216,7 +221,7 @@ x.rda.perf <- performance(x.rda.prob.rocr, "tpr","fpr")
 ####### plot
 # Output the plot to a PNG file for display on web.  To draw to the screen, 
 # comment this line out.
-png(filename="roc_curve_models1.png", width=700, height=700)
+#png(filename="roc_curve_models1.png", width=700, height=700)
 
 #par(mfrow=c(1,2))
 plot(x.rp.perf, col=2, main="ROC curves comparing classification performance \n of 9 machine learning models") # 
@@ -226,15 +231,15 @@ plot(x.cf.perf, col=4, add=TRUE)
 plot(x.ip.perf, col=5, add=TRUE)
 plot(x.svm.perf, col=6, add=TRUE)
 # Close and save the PNG file.
-dev.off()
+#dev.off()
 
-png(filename="roc_curve_models2.png", width=700, height=700)
+#png(filename="roc_curve_models2.png", width=700, height=700)
 plot(x.nb.perf, col=7, main="ROC curves comparing classification performance \n of the other 4 machine learning models")
 legend(0.6, 0.6, c('naive bayes', 'neural network', 'qda','rda'), 7:10)
 plot(x.nn.perf, col=8, add=TRUE)
 plot(x.qda.perf, col=9, add=TRUE)
 plot(x.rda.perf, col=10, add=TRUE)
-dev.off()
+#dev.off()
 ```
 
 ### Ensemble: combine all the nine classifiers and generate the final prediction based on the majority rule.
