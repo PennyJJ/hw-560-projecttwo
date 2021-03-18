@@ -257,6 +257,9 @@ classifier<- addmargins(classifier, margin = 2) # table/arragy, margin =2 aggreg
 classifier <- data.frame(classifier)
 classifier$predition <- ifelse(classifier$Sum >=5, 'malignant','benign')
 
+head(classifier)
+table(classifier$predition, valid$Class)
+
 #confusion matrix 
 library(caret)
 confusionMatrix(as.factor(classifier$predition), valid$Class, positive = 'malignant')
